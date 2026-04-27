@@ -1,3 +1,12 @@
+shell("start cmd /c python ai_engine.py", wait = FALSE)
+
+Sys.sleep(3)
+
+shell("start cmd /c python dashboard.py", wait = FALSE)
+
+Sys.sleep(3)
+
+Sys.sleep(3)
 library(shiny)
 library(ggplot2)
 library(dplyr)

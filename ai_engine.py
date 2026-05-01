@@ -4,26 +4,32 @@ import pandas as pd
 from datetime import datetime
 import os
 
-# Configuration
-CSV_FILE = "emotion_log.csv"
-DB_PATH = "students" 
+students_df = pd.read_csv("students.csv", encoding="utf-8-sig")
+students_df.columns = students_df.columns.str.strip()
+
+id_to_name = {
+    int(row["Student ID"]): row["Student Name"]
+    for _, row in students_df.iterrows()
+    if not pd.isna(row["Student ID"])
+}
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_FILE = os.path.join(BASE_DIR, "emotion_log.csv")
+DB_PATH = os.path.join(BASE_DIR, "students")
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
+LECTURE_ID = "L1"
 
 if not os.path.exists(CSV_FILE):
-    pd.DataFrame(columns=['Student_ID', 'Time', 'Emotion', 'Confidence', 'Lecture_ID']).to_csv(CSV_FILE, index=False)
+    pd.DataFrame(
+        columns=["Student_ID", "Time", "Emotion", "Confidence", "Lecture_ID"]
+    ).to_csv(CSV_FILE, index=False)
 
 def open_camera(source):
-    """
-    Opens a camera from:
-    - CAMERA_SOURCE=auto (tries 0,1,2,3)
-    - CAMERA_SOURCE=<index> (e.g. 0)
-    """
     if source.lower() == "auto":
         for idx in [0, 1, 2, 3]:
             cam = cv2.VideoCapture(idx)
             ok, _ = cam.read()
             if ok:
-                print(f"Using camera index {idx}")
                 return cam
             cam.release()
         return None
@@ -32,57 +38,111 @@ def open_camera(source):
         cam = cv2.VideoCapture(int(source))
         ok, _ = cam.read()
         if ok:
-            print(f"Using camera index {source}")
             return cam
         cam.release()
-        return None
 
-    print("Only local camera index is supported now. Set CAMERA_SOURCE to a number (e.g. 0).")
     return None
 
-# Start camera from auto/index
 cap = open_camera(CAMERA_SOURCE)
-if cap is None:
-    raise RuntimeError(
-        "Could not open camera. Set CAMERA_SOURCE=0 (or use auto)."
-    )
 
-print("AI Engine Started. Press 'q' to stop.")
+if cap is None:
+    raise RuntimeError("Could not open camera")
 
 while True:
     ret, frame = cap.read()
-    if not ret: break
+    if not ret:
+        break
 
     try:
+        results = DeepFace.analyze(
+            frame,
+            actions=["emotion"],
+            enforce_detection=False,
+            detector_backend="opencv",
+            silent=True
+        )
 
-        # 1. Identify WHO (Attendance) and WHAT (Emotion)
-        results = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False, silent=True)
-        
+        if isinstance(results, dict):
+            results = [results]
+
         for res in results:
-            x, y, w, h = res['region']['x'], res['region']['y'], res['region']['w'], res['region']['h']
-            
-            # Attendance Recognition
+            x = res["region"]["x"]
+            y = res["region"]["y"]
+            w = res["region"]["w"]
+            h = res["region"]["h"]
+
             try:
-                identities = DeepFace.find(frame[y:y+h, x:x+w], db_path=DB_PATH, enforce_detection=False, silent=True)
-                name = os.path.basename(identities[0]['identity'][0]).split('.')[0] if not identities[0].empty else "Unknown"
+                identities = DeepFace.find(
+                    img_path=frame,
+                    db_path=DB_PATH,
+                    enforce_detection=False,
+                    detector_backend="opencv",
+                    model_name="Facenet",
+                    distance_metric="cosine",
+                    silent=True
+                )
+
+                if len(identities) > 0 and not identities[0].empty:
+                    best_match = identities[0].iloc[0]
+
+                    if best_match["distance"] > 0.6:
+                        name = "Not Registered"
+                    else:
+                        matched_path = best_match["identity"]
+                        student_id = os.path.basename(matched_path).split(".")[0]
+
+                        try:
+                            student_id = int(student_id)
+                            name = id_to_name.get(student_id, str(student_id))
+                        except:
+                            name = str(student_id)
+                else:
+                    name = "Not Registered"
+
             except:
-                name = "Unknown"
+                name = "Not Registered"
 
-            emotion = res['dominant_emotion'].capitalize()
-            conf = round(res['emotion'][res['dominant_emotion']] / 100, 2)
-            
-            # 2. Log to CSV (Objective 2)
-            new_row = [name, datetime.now().strftime("%H:%M:%S"), emotion, conf, "L1"]
-            pd.DataFrame([new_row]).to_csv(CSV_FILE, mode='a', header=False, index=False)
+            emotion = res["dominant_emotion"].capitalize()
+            confidence = round(res["emotion"][res["dominant_emotion"]] / 100, 2)
 
-            # Draw labels on screen
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            cv2.putText(frame, f"{name}: {emotion}", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            row = [[
+                name,
+                datetime.now().strftime("%H:%M:%S"),
+                emotion,
+                confidence,
+                LECTURE_ID
+            ]]
 
-    except: pass
+            pd.DataFrame(row).to_csv(
+                CSV_FILE,
+                mode="a",
+                header=False,
+                index=False
+            )
 
-    cv2.imshow('AI Monitor', frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'): break
+            color = (0, 255, 0)
+            if name == "Not Registered":
+                color = (0, 0, 255)
+
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+
+            cv2.putText(
+                frame,
+                f"{name} ({emotion} {confidence})",
+                (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2
+            )
+
+    except:
+        pass
+
+    cv2.imshow("AI Classroom Monitor", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord("q"):
+        break
 
 cap.release()
 cv2.destroyAllWindows()

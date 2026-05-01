@@ -1,10 +1,15 @@
+setwd("c:/Users/ahmed/ai-classroom")
+
 if (.Platform$OS.type == "windows") {
   system("cmd /c start python ai_engine.py", wait = FALSE)
+  Sys.sleep(3)
   system("cmd /c start python dashboard.py", wait = FALSE)
 } else {
   system("python3 ai_engine.py &", wait = FALSE)
+  Sys.sleep(3)
   system("python3 dashboard.py &", wait = FALSE)
 }
+
 library(shiny)
 library(ggplot2)
 library(dplyr)
@@ -14,7 +19,6 @@ CSV_FILE <- "emotion_log.csv"
 
 ui <- fluidPage(
   titlePanel("Professor Dashboard: Attendance & Stats"),
-  
   sidebarLayout(
     sidebarPanel(
       actionButton("refresh", "Update Live Feed"),
@@ -23,7 +27,6 @@ ui <- fluidPage(
       h4("Attendance"),
       tableOutput("attendance_list")
     ),
-    
     mainPanel(
       plotOutput("trendPlot"),
       h4("BA304 Statistical Summary"),
@@ -36,7 +39,6 @@ server <- function(input, output) {
   
   data_load <- reactive({
     input$refresh
-    
     req(file.exists(CSV_FILE))
     
     df <- read.csv(CSV_FILE, stringsAsFactors = FALSE)
@@ -69,7 +71,6 @@ server <- function(input, output) {
   
   output$stats_table <- renderTable({
     df <- data_load()
-    
     m <- mean(df$Score, na.rm = TRUE)
     s <- sd(df$Score, na.rm = TRUE)
     cv <- ifelse(m == 0, NA, (s / m) * 100)
@@ -100,10 +101,8 @@ server <- function(input, output) {
     filename = function() {
       paste("Class_Report_", Sys.Date(), ".pdf", sep = "")
     },
-    
     content = function(file) {
       pdf(file, width = 8, height = 11)
-      
       df <- data_load()
       
       plot.new()
@@ -115,13 +114,14 @@ server <- function(input, output) {
         labs(title = "Overall Emotion Distribution")
       
       print(p1)
-      
       dev.off()
     }
   )
 }
 
-runApp(list(ui = ui, server = server), 
-       host = "0.0.0.0", 
-       port = 1234, 
-       launch.browser = TRUE)
+runApp(
+  list(ui = ui, server = server),
+  host = "0.0.0.0",
+  port = 1234,
+  launch.browser = TRUE
+)

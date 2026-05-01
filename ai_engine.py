@@ -48,6 +48,9 @@ cap = open_camera(CAMERA_SOURCE)
 if cap is None:
     raise RuntimeError("Could not open camera")
 
+print("AI Engine Started")
+print("Press Q to Quit")
+
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -99,7 +102,8 @@ while True:
                 else:
                     name = "Not Registered"
 
-            except:
+            except Exception as e:
+                print("Recognition Error:", e)
                 name = "Not Registered"
 
             emotion = res["dominant_emotion"].capitalize()
@@ -136,8 +140,8 @@ while True:
                 2
             )
 
-    except:
-        pass
+    except Exception as e:
+        print("Analyze Error:", e)
 
     cv2.imshow("AI Classroom Monitor", frame)
 
